@@ -1,7 +1,7 @@
 import express, { Request, Response, Router } from 'express';
 import { OpenAPIRegistry, extendZodWithOpenApi } from '@asteasolutions/zod-to-openapi';
 import { StatusCodes } from 'http-status-codes';
-import { RegisterRequestSchema, RegisterResponseSchema } from './auth.dto';
+import { RegisterRequestSchema, RegisterResponseSchema, LoginResponseSchema, LoginRequestSchema } from './auth.dto';
 import { authService } from './auth.service';
 import { ServiceResponse, ResponseStatus } from '@/common';
 import { createApiResponse } from '@/swagger/openAPIResponseBuilders';
@@ -21,6 +21,8 @@ export const authRegistry = new OpenAPIRegistry();
 // 👉 Đây là chỗ đăng ký schema với Swagger để tự sinh tài liệu API.
 authRegistry.register('RegisterRequest', RegisterRequestSchema);
 authRegistry.register('RegisterResponse', RegisterResponseSchema);
+authRegistry.register('LoginRequest', LoginRequestSchema);
+authRegistry.register('LoginResponse', LoginResponseSchema);
 
 authRegistry.registerPath({
   method: 'post',
@@ -40,6 +42,25 @@ authRegistry.registerPath({
     ...createApiResponse(z.null(), 'Dữ liệu không hợp lệ', StatusCodes.BAD_REQUEST),
   },
 });
+authRegistry.registerPath({
+  method: 'post',
+  path: '/auth/login',
+  tags: ['Auth'],
+  request: {
+    body: {
+      content: {
+        'application/json': { schema: LoginRequestSchema },
+      },
+    },
+  },  
+  responses: {
+    ...createApiResponse(LoginResponseSchema, 'Đăng nhập thành công', StatusCodes.OK),
+    //Request body phải theo LoginRequestSchema (email, password).
+    ...createApiResponse(z.null(), 'Email hoặc mật khẩu sai', StatusCodes.UNAUTHORIZED),
+    ...createApiResponse(z.null(), 'Dữ liệu không hợp lệ', StatusCodes.BAD_REQUEST),
+  },
+});
+
 
 export const authRouter: Router = (() => {
   const router = express.Router();
@@ -57,6 +78,22 @@ export const authRouter: Router = (() => {
       );
     }
     const serviceResponse = await authService.register(parsed.data);
+    return res.status(serviceResponse.code).json(serviceResponse);
+  });
+  router.post('/login', async (req: Request, res: Response) => {
+    const parsed = LoginRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(StatusCodes.BAD_REQUEST).json(
+        new ServiceResponse(
+          ResponseStatus.Failed,
+          'Dữ liệu không hợp lệ',
+          { errors: parsed.error.flatten() },
+          StatusCodes.BAD_REQUEST
+        )
+      );
+    }
+
+    const serviceResponse = await authService.login(parsed.data.email, parsed.data.password);
     return res.status(serviceResponse.code).json(serviceResponse);
   });
 
