@@ -85,6 +85,23 @@ authRegistry.registerPath({
     ...createApiResponse(z.null(), 'Dữ liệu không hợp lệ', StatusCodes.BAD_REQUEST),
   },
 });
+authRegistry.registerPath({
+  method: 'post',
+  path: '/auth/refresh',
+  tags: ['Auth'],
+  responses: {
+    200: { description: 'Cấp lại access token thành công (rotate refresh)' },
+    401: { description: 'Refresh token không hợp lệ' },
+  },
+});
+authRegistry.registerPath({
+  method: 'post',
+  path: '/auth/logout',
+  tags: ['Auth'],
+  responses: {
+    200: { description: 'Đăng xuất thành công' },
+  },
+});
 
 
 export const authRouter: Router = (() => {
@@ -120,6 +137,57 @@ export const authRouter: Router = (() => {
 
     const serviceResponse = await authService.login(parsed.data.email, parsed.data.password);
     return res.status(serviceResponse.code).json(serviceResponse);
+  });
+
+  router.post('/refresh', async (req: Request, res: Response) => {
+    const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
+    if (!refreshToken) {
+      return res.status(StatusCodes.UNAUTHORIZED).json(new ServiceResponse(
+        ResponseStatus.Failed,
+        'Thiếu refresh token',
+        null,
+        StatusCodes.UNAUTHORIZED
+      ));
+    }
+    const serviceResp = await authService.refresh(refreshToken);
+    if (serviceResp.code !== StatusCodes.OK) {
+      return res.status(serviceResp.code).json(serviceResp);
+    }
+    const data: any = serviceResp.data;
+    const common = {
+      httpOnly: true,
+      secure: appEnv.COOKIE_SECURE,
+      sameSite: appEnv.COOKIE_SAME_SITE as any,
+      domain: appEnv.COOKIE_DOMAIN || undefined,
+      path: '/',
+    };
+    res.cookie('accessToken', data.accessToken, { ...common, maxAge: appEnv.JWT_ACCESS_EXPIRES * 1000 });
+    res.cookie('refreshToken', data.refreshToken, { ...common, maxAge: appEnv.JWT_REFRESH_EXPIRES * 1000 });
+    return res.status(serviceResp.code).json(serviceResp);
+  });
+
+  router.post('/logout', async (req: Request, res: Response) => {
+    // Đơn giản: cần userId -> ở đây chưa có middleware decode accessToken nên tạm lấy từ body
+    const { userId } = req.body || {};
+    if (!userId) {
+      return res.status(StatusCodes.BAD_REQUEST).json(new ServiceResponse(
+        ResponseStatus.Failed,
+        'Thiếu userId',
+        null,
+        StatusCodes.BAD_REQUEST
+      ));
+    }
+    const serviceResp = await authService.logout(userId);
+    const clearOpts: any = {
+      httpOnly: true,
+      secure: appEnv.COOKIE_SECURE,
+      sameSite: appEnv.COOKIE_SAME_SITE as any,
+      domain: appEnv.COOKIE_DOMAIN || undefined,
+      path: '/',
+    };
+    res.clearCookie('accessToken', clearOpts);
+    res.clearCookie('refreshToken', clearOpts);
+    return res.status(serviceResp.code).json(serviceResp);
   });
 
   // In-memory state store (simple). Production: Redis.
