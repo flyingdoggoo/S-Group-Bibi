@@ -24,6 +24,8 @@ model User {
   passwordHash String? // Google user có thể không có password nội bộ
   name         String?
   isEmailVerified Boolean @default(false)
+  emailVerificationToken String?
+  emailVerificationTokenExpires DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   refreshTokenHash String? // Lưu hash của refresh token hiện tại (đơn giản, 1 thiết bị)
