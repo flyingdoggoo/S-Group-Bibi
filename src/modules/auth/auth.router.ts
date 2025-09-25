@@ -1,7 +1,7 @@
 import express, { Request, Response, Router } from 'express';
 import { OpenAPIRegistry, extendZodWithOpenApi } from '@asteasolutions/zod-to-openapi';
 import { StatusCodes } from 'http-status-codes';
-import { RegisterRequestSchema, RegisterResponseSchema, LoginResponseSchema, LoginRequestSchema, RequestEmailVerificationSchema, VerifyEmailSchema } from './auth.dto';
+import { RegisterRequestSchema, RegisterResponseSchema, LoginResponseSchema, LoginRequestSchema, RequestEmailVerificationSchema, VerifyEmailSchema, ForgotPasswordRequestSchema, ResetPasswordRequestSchema, ChangePasswordRequestSchema } from './auth.dto';
 import { authService } from './auth.service';
 import { ServiceResponse, ResponseStatus } from '@/common';
 import { createApiResponse } from '@/swagger/openAPIResponseBuilders';
@@ -27,6 +27,9 @@ authRegistry.register('LoginRequest', LoginRequestSchema);
 authRegistry.register('LoginResponse', LoginResponseSchema);
 authRegistry.register('RequestEmailVerification', RequestEmailVerificationSchema);
 authRegistry.register('VerifyEmail', VerifyEmailSchema);
+authRegistry.register('ForgotPasswordRequest', ForgotPasswordRequestSchema);
+authRegistry.register('ResetPasswordRequest', ResetPasswordRequestSchema);
+authRegistry.register('ChangePasswordRequest', ChangePasswordRequestSchema);
 
 authRegistry.registerPath({
   method: 'post',
@@ -124,6 +127,27 @@ authRegistry.registerPath({
   responses: {
     200: { description: 'Đăng xuất thành công' },
   },
+});
+authRegistry.registerPath({
+  method: 'post',
+  path: '/auth/forgot-password',
+  tags: ['Auth'],
+  request: { body: { content: { 'application/json': { schema: ForgotPasswordRequestSchema } } } },
+  responses: { 200: { description: 'Nếu email tồn tại sẽ gửi link đặt lại (giả lập)' } },
+});
+authRegistry.registerPath({
+  method: 'post',
+  path: '/auth/reset-password',
+  tags: ['Auth'],
+  request: { body: { content: { 'application/json': { schema: ResetPasswordRequestSchema } } } },
+  responses: { 200: { description: 'Đặt lại mật khẩu thành công' }, 400: { description: 'Token không hợp lệ / hết hạn' } },
+});
+authRegistry.registerPath({
+  method: 'post',
+  path: '/auth/change-password',
+  tags: ['Auth'],
+  request: { body: { content: { 'application/json': { schema: ChangePasswordRequestSchema } } } },
+  responses: { 200: { description: 'Đổi mật khẩu thành công' }, 401: { description: 'Mật khẩu hiện tại sai' } },
 });
 
 
@@ -239,6 +263,48 @@ export const authRouter: Router = (() => {
     res.clearCookie('accessToken', clearOpts);
     res.clearCookie('refreshToken', clearOpts);
     return res.status(serviceResp.code).json(serviceResp);
+  });
+
+  router.post('/forgot-password', async (req: Request, res: Response) => {
+    const parsed = ForgotPasswordRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(StatusCodes.BAD_REQUEST).json(new ServiceResponse(
+        ResponseStatus.Failed,
+        'Dữ liệu không hợp lệ',
+        { errors: parsed.error.flatten() },
+        StatusCodes.BAD_REQUEST
+      ));
+    }
+    const sr = await authService.requestPasswordReset(parsed.data.email);
+    return res.status(sr.code).json(sr);
+  });
+
+  router.post('/reset-password', async (req: Request, res: Response) => {
+    const parsed = ResetPasswordRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(StatusCodes.BAD_REQUEST).json(new ServiceResponse(
+        ResponseStatus.Failed,
+        'Dữ liệu không hợp lệ',
+        { errors: parsed.error.flatten() },
+        StatusCodes.BAD_REQUEST
+      ));
+    }
+    const sr = await authService.resetPassword(parsed.data.token, parsed.data.newPassword);
+    return res.status(sr.code).json(sr);
+  });
+
+  router.post('/change-password', async (req: Request, res: Response) => {
+    const parsed = ChangePasswordRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(StatusCodes.BAD_REQUEST).json(new ServiceResponse(
+        ResponseStatus.Failed,
+        'Dữ liệu không hợp lệ',
+        { errors: parsed.error.flatten() },
+        StatusCodes.BAD_REQUEST
+      ));
+    }
+    const sr = await authService.changePassword(parsed.data.userId, parsed.data.currentPassword, parsed.data.newPassword);
+    return res.status(sr.code).json(sr);
   });
 
   // In-memory state store (simple). Production: Redis.
