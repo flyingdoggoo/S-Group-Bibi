@@ -1,7 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import bcrypt from 'bcrypt';
 import { authRepository } from './auth.repository';
-import { RegisterRequest, RegisterResponse, LoginResponse, RequestEmailVerification, VerifyEmailRequest } from './auth.dto';
+import { RegisterRequest, RegisterResponse, LoginResponse, RequestEmailVerification, VerifyEmailRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest } from './auth.dto';
 import { ResponseStatus, ServiceResponse } from '@/common';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '@/common/utils/jwt';
 import { appEnv } from '@/configs';
@@ -187,23 +187,10 @@ class AuthService {
       ? (authRepository as any).prisma.user.upsert({}) // placeholder (not used)
       : await (await import('@/prisma/client')).prisma.user.upsert({
         where: { email },
-        update: {
-          name: payload.name,
-          avatarUrl: payload.picture,
-          provider: 'GOOGLE',
-          providerId: payload.sub,
-          isEmailVerified: payload.email_verified ?? false,
-          lastLoginAt: new Date(),
-        },
-        create: {
-          email,
-          name: payload.name,
-          avatarUrl: payload.picture,
-          provider: 'GOOGLE',
-          providerId: payload.sub,
-          isEmailVerified: payload.email_verified ?? false,
-          lastLoginAt: new Date(),
-        },
+        // @ts-ignore prisma types may be stale
+        update: { name: payload.name, avatarUrl: payload.picture, provider: 'GOOGLE', providerId: payload.sub, isEmailVerified: payload.email_verified ?? false, lastLoginAt: new Date() },
+        // @ts-ignore
+        create: { email, name: payload.name, avatarUrl: payload.picture, provider: 'GOOGLE', providerId: payload.sub, isEmailVerified: payload.email_verified ?? false, lastLoginAt: new Date() },
       });
 
     const tokenId = crypto.randomUUID();
@@ -260,6 +247,59 @@ class AuthService {
       return new ServiceResponse(ResponseStatus.Failed, 'Token không hợp lệ hoặc đã hết hạn', null, StatusCodes.BAD_REQUEST);
     }
     return new ServiceResponse(ResponseStatus.Success, 'Xác thực email thành công', { email: user.email }, StatusCodes.OK);
+  }
+
+  // ========== PASSWORD RESET ==========
+  private generatePasswordResetToken() {
+    return crypto.randomBytes(32).toString('hex');
+  }
+  private hash(str: string) {
+    return crypto.createHash('sha256').update(str).digest('hex');
+  }
+  async requestPasswordReset(email: string) {
+    const user = await authRepository.findByEmail(email);
+    if (!user) {
+      // Không tiết lộ user có tồn tại
+      return new ServiceResponse(ResponseStatus.Success, 'Nếu email tồn tại, hệ thống đã gửi hướng dẫn đặt lại mật khẩu', null, StatusCodes.OK);
+    }
+    if (!user.passwordHash) {
+      return new ServiceResponse(ResponseStatus.Success, 'Tài khoản đăng nhập bằng OAuth không cần reset mật khẩu', null, StatusCodes.OK);
+    }
+    const token = this.generatePasswordResetToken();
+    const tokenHash = this.hash(token);
+    const expires = new Date(Date.now() + appEnv.PASSWORD_RESET_EXP_MIN * 60 * 1000);
+    await authRepository.setPasswordResetToken(user.id, tokenHash, expires);
+    const link = `${appEnv.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+    console.log('[PASSWORD RESET] Link:', link);
+    return new ServiceResponse(ResponseStatus.Success, 'Đã gửi email đặt lại mật khẩu (giả lập)', null, StatusCodes.OK);
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    if (!token) return new ServiceResponse(ResponseStatus.Failed, 'Token không hợp lệ', null, StatusCodes.BAD_REQUEST);
+    const user = await authRepository.findUserByValidPasswordResetToken(token, (t) => this.hash(t));
+    if (!user) return new ServiceResponse(ResponseStatus.Failed, 'Token không hợp lệ hoặc hết hạn', null, StatusCodes.BAD_REQUEST);
+    const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await authRepository.updatePassword(user.id, passwordHash);
+    await authRepository.clearPasswordResetToken(user.id);
+    // Invalidate refresh token (nếu có) để buộc login lại
+    await authRepository.updateRefreshToken(user.id, null);
+    return new ServiceResponse(ResponseStatus.Success, 'Đặt lại mật khẩu thành công', null, StatusCodes.OK);
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await authRepository.findById(userId);
+    if (!user || !user.passwordHash) {
+      return new ServiceResponse(ResponseStatus.Failed, 'Người dùng không tồn tại hoặc không có mật khẩu nội bộ', null, StatusCodes.BAD_REQUEST);
+    }
+    const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!ok) {
+      return new ServiceResponse(ResponseStatus.Failed, 'Mật khẩu hiện tại không đúng', null, StatusCodes.UNAUTHORIZED);
+    }
+    const newHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await authRepository.updatePassword(user.id, newHash);
+    // Invalidate refresh token để buộc refresh/login mới
+    await authRepository.updateRefreshToken(user.id, null);
+    return new ServiceResponse(ResponseStatus.Success, 'Đổi mật khẩu thành công', null, StatusCodes.OK);
   }
 }
 

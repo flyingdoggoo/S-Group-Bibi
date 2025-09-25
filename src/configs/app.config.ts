@@ -23,6 +23,9 @@ export const appEnv = cleanEnv(process.env, {
   // Email verification expiration (minutes)
   EMAIL_VERIFICATION_EXP_MIN: num({ default: 30 }),
 
+  // Password reset token expiration (minutes)
+  PASSWORD_RESET_EXP_MIN: num({ default: 30 }),
+
   // Google OAuth
   GOOGLE_CLIENT_ID: str({ default: 'replace_me' }),
   GOOGLE_CLIENT_SECRET: str({ default: 'replace_me' }),

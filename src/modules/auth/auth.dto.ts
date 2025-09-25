@@ -50,3 +50,40 @@ export const VerifyEmailSchema = z.object({
   token: z.string().min(10),
 });
 export type VerifyEmailRequest = z.infer<typeof VerifyEmailSchema>;
+
+// ========== Password Reset & Change DTOs ==========
+export const ForgotPasswordRequestSchema = z.object({
+  email: z.string().email(),
+});
+export type ForgotPasswordRequest = z.infer<typeof ForgotPasswordRequestSchema>;
+
+export const ResetPasswordRequestSchema = z
+  .object({
+    token: z.string().min(20),
+    newPassword: z
+      .string()
+      .min(8, 'Tối thiểu 8 ký tự')
+      .regex(/[A-Z]/, 'Cần ít nhất 1 chữ hoa'),
+    confirmNewPassword: z.string(),
+  })
+  .refine((d) => d.newPassword === d.confirmNewPassword, {
+    message: 'Mật khẩu xác nhận không khớp',
+    path: ['confirmNewPassword'],
+  });
+export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequestSchema>;
+
+export const ChangePasswordRequestSchema = z
+  .object({
+    userId: z.string().uuid(), // Tạm thời truyền userId, sau này lấy từ accessToken
+    currentPassword: z.string().min(1),
+    newPassword: z
+      .string()
+      .min(8, 'Tối thiểu 8 ký tự')
+      .regex(/[A-Z]/, 'Cần ít nhất 1 chữ hoa'),
+    confirmNewPassword: z.string(),
+  })
+  .refine((d) => d.newPassword === d.confirmNewPassword, {
+    message: 'Mật khẩu xác nhận không khớp',
+    path: ['confirmNewPassword'],
+  });
+export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequestSchema>;
