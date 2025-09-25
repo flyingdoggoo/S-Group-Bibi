@@ -24,9 +24,18 @@ export const RegisterRequestSchema = z
     message: 'Mật khẩu xác nhận không khớp',
     path: ['confirmPassword'],
   });
-  
+
+export const LoginRequestSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1)
+});
+
+
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
-
 export const RegisterResponseSchema = UserDtoSchema; // hoặc null nếu chỉ trả message
-
 export type RegisterResponse = z.infer<typeof RegisterResponseSchema>;
+export type LoginRequest = z.infer<typeof LoginRequestSchema>;
+export const LoginResponseSchema = z.object({
+  user: UserDtoSchema,
+});
+export type LoginResponse = z.infer<typeof LoginResponseSchema>;
