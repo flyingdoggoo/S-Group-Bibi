@@ -6,6 +6,8 @@ import { authService } from './auth.service';
 import { ServiceResponse, ResponseStatus } from '@/common';
 import { createApiResponse } from '@/swagger/openAPIResponseBuilders';
 import { z } from 'zod';
+import crypto from 'crypto';
+import { appEnv } from '@/configs';
 // express → framework backend (dùng để tạo API).
 // zod → thư viện validate dữ liệu (check email hợp lệ, mật khẩu ≥ 8 ký tự…).
 // @asteasolutions/zod-to-openapi → dùng để chuyển schema của Zod thành tài liệu Swagger/OpenAPI.
@@ -42,6 +44,29 @@ authRegistry.registerPath({
     ...createApiResponse(z.null(), 'Dữ liệu không hợp lệ', StatusCodes.BAD_REQUEST),
   },
 });
+// Google OAuth paths (simple)
+authRegistry.registerPath({
+  method: 'get',
+  path: '/auth/google',
+  tags: ['Auth'],
+  responses: {
+    302: { description: 'Redirect tới Google OAuth consent screen' },
+  },
+});
+authRegistry.registerPath({
+  method: 'get',
+  path: '/auth/google/callback',
+  tags: ['Auth'],
+  parameters: [
+    { name: 'code', in: 'query', required: true, schema: { type: 'string' } },
+    { name: 'state', in: 'query', required: false, schema: { type: 'string' } },
+  ],
+  responses: {
+    302: { description: 'Đăng nhập thành công -> redirect FRONTEND_URL' },
+    400: { description: 'Thiếu code hoặc lỗi' },
+    500: { description: 'Lỗi server' },
+  },
+});
 authRegistry.registerPath({
   method: 'post',
   path: '/auth/login',
@@ -52,7 +77,7 @@ authRegistry.registerPath({
         'application/json': { schema: LoginRequestSchema },
       },
     },
-  },  
+  },
   responses: {
     ...createApiResponse(LoginResponseSchema, 'Đăng nhập thành công', StatusCodes.OK),
     //Request body phải theo LoginRequestSchema (email, password).
@@ -95,6 +120,55 @@ export const authRouter: Router = (() => {
 
     const serviceResponse = await authService.login(parsed.data.email, parsed.data.password);
     return res.status(serviceResponse.code).json(serviceResponse);
+  });
+
+  // In-memory state store (simple). Production: Redis.
+  const oauthStateStore = new Map<string, number>();
+
+  router.get('/google', (req: Request, res: Response) => {
+    const state = crypto.randomUUID();
+    oauthStateStore.set(state, Date.now() + 5 * 60 * 1000); // 5 minutes ttl
+    const url = authService.buildGoogleAuthUrl(state);
+    return res.redirect(url);
+  });
+
+  router.get('/google/callback', async (req: Request, res: Response) => {
+    const { code, state } = req.query;
+    if (!code) {
+      return res.status(StatusCodes.BAD_REQUEST).send('Missing code');
+    }
+    if (state && (!oauthStateStore.has(String(state)) || (oauthStateStore.get(String(state)) || 0) < Date.now())) {
+      return res.status(StatusCodes.BAD_REQUEST).send('Invalid state');
+    }
+    if (state) oauthStateStore.delete(String(state));
+    try {
+      const tokens = await authService.exchangeCodeForTokens(String(code));
+      const serviceResp = await authService.googleLogin(tokens.id_token);
+      if (serviceResp.code !== StatusCodes.OK) {
+        return res.status(serviceResp.code).json(serviceResp);
+      }
+      const data: any = serviceResp.data;
+      // Set cookies (simple)
+      const common = {
+        httpOnly: true,
+        secure: appEnv.COOKIE_SECURE,
+        sameSite: appEnv.COOKIE_SAME_SITE as any,
+        domain: appEnv.COOKIE_DOMAIN || undefined,
+        path: '/',
+      };
+      res.cookie('accessToken', data.accessToken, { ...common, maxAge: appEnv.JWT_ACCESS_EXPIRES * 1000 });
+      res.cookie('refreshToken', data.refreshToken, { ...common, maxAge: appEnv.JWT_REFRESH_EXPIRES * 1000 });
+      // Redirect frontend
+      return res.json({
+        message: 'Google login ok',
+        user: data.user,
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken
+      });
+    } catch (e: any) {
+      console.error(e);
+      return res.status(500).send('OAuth error');
+    }
   });
 
   return router;

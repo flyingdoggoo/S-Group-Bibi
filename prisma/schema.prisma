@@ -13,14 +13,24 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum AuthProvider {
+  LOCAL
+  GOOGLE
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
-  passwordHash String
+  passwordHash String? // Google user có thể không có password nội bộ
   name         String?
   isEmailVerified Boolean @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   refreshTokenHash String? // Lưu hash của refresh token hiện tại (đơn giản, 1 thiết bị)
   lastLoginAt DateTime?    // Thời điểm đăng nhập gần nhất
+  provider     AuthProvider @default(LOCAL)
+  providerId   String? // id từ Google (sub)
+  avatarUrl    String?
+
+  @@index([provider, providerId])
 }
