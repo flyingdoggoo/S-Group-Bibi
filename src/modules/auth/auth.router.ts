@@ -1,7 +1,7 @@
 import express, { Request, Response, Router } from 'express';
 import { OpenAPIRegistry, extendZodWithOpenApi } from '@asteasolutions/zod-to-openapi';
 import { StatusCodes } from 'http-status-codes';
-import { RegisterRequestSchema, RegisterResponseSchema, LoginResponseSchema, LoginRequestSchema } from './auth.dto';
+import { RegisterRequestSchema, RegisterResponseSchema, LoginResponseSchema, LoginRequestSchema, RequestEmailVerificationSchema, VerifyEmailSchema } from './auth.dto';
 import { authService } from './auth.service';
 import { ServiceResponse, ResponseStatus } from '@/common';
 import { createApiResponse } from '@/swagger/openAPIResponseBuilders';
@@ -25,6 +25,8 @@ authRegistry.register('RegisterRequest', RegisterRequestSchema);
 authRegistry.register('RegisterResponse', RegisterResponseSchema);
 authRegistry.register('LoginRequest', LoginRequestSchema);
 authRegistry.register('LoginResponse', LoginResponseSchema);
+authRegistry.register('RequestEmailVerification', RequestEmailVerificationSchema);
+authRegistry.register('VerifyEmail', VerifyEmailSchema);
 
 authRegistry.registerPath({
   method: 'post',
@@ -87,6 +89,27 @@ authRegistry.registerPath({
 });
 authRegistry.registerPath({
   method: 'post',
+  path: '/auth/send-verify-email',
+  tags: ['Auth'],
+  request: {
+    body: { content: { 'application/json': { schema: RequestEmailVerificationSchema } } },
+  },
+  responses: {
+    200: { description: 'Nếu email tồn tại: gửi (giả lập) link xác thực' },
+  },
+});
+authRegistry.registerPath({
+  method: 'post',
+  path: '/auth/verify-email',
+  tags: ['Auth'],
+  request: { body: { content: { 'application/json': { schema: VerifyEmailSchema } } } },
+  responses: {
+    200: { description: 'Xác thực email thành công' },
+    400: { description: 'Token không hợp lệ / hết hạn' },
+  },
+});
+authRegistry.registerPath({
+  method: 'post',
   path: '/auth/refresh',
   tags: ['Auth'],
   responses: {
@@ -137,6 +160,34 @@ export const authRouter: Router = (() => {
 
     const serviceResponse = await authService.login(parsed.data.email, parsed.data.password);
     return res.status(serviceResponse.code).json(serviceResponse);
+  });
+
+  router.post('/send-verify-email', async (req: Request, res: Response) => {
+    const parsed = RequestEmailVerificationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(StatusCodes.BAD_REQUEST).json(new ServiceResponse(
+        ResponseStatus.Failed,
+        'Dữ liệu không hợp lệ',
+        { errors: parsed.error.flatten() },
+        StatusCodes.BAD_REQUEST
+      ));
+    }
+    const sr = await authService.requestEmailVerification(parsed.data.email);
+    return res.status(sr.code).json(sr);
+  });
+
+  router.post('/verify-email', async (req: Request, res: Response) => {
+    const parsed = VerifyEmailSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(StatusCodes.BAD_REQUEST).json(new ServiceResponse(
+        ResponseStatus.Failed,
+        'Dữ liệu không hợp lệ',
+        { errors: parsed.error.flatten() },
+        StatusCodes.BAD_REQUEST
+      ));
+    }
+    const sr = await authService.verifyEmailToken(parsed.data.token);
+    return res.status(sr.code).json(sr);
   });
 
   router.post('/refresh', async (req: Request, res: Response) => {

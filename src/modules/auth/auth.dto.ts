@@ -39,3 +39,14 @@ export const LoginResponseSchema = z.object({
   user: UserDtoSchema,
 });
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+
+// Email verification DTOs
+export const RequestEmailVerificationSchema = z.object({
+  email: z.string().email(),
+});
+export type RequestEmailVerification = z.infer<typeof RequestEmailVerificationSchema>;
+
+export const VerifyEmailSchema = z.object({
+  token: z.string().min(10),
+});
+export type VerifyEmailRequest = z.infer<typeof VerifyEmailSchema>;

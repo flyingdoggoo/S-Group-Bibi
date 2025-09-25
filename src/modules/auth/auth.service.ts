@@ -1,7 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import bcrypt from 'bcrypt';
 import { authRepository } from './auth.repository';
-import { RegisterRequest, RegisterResponse, LoginResponse } from './auth.dto';
+import { RegisterRequest, RegisterResponse, LoginResponse, RequestEmailVerification, VerifyEmailRequest } from './auth.dto';
 import { ResponseStatus, ServiceResponse } from '@/common';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '@/common/utils/jwt';
 import { appEnv } from '@/configs';
@@ -226,6 +226,40 @@ class AuthService {
       { accessToken, refreshToken, user: dto },
       StatusCodes.OK
     );
+  }
+
+  // ========== EMAIL VERIFICATION ==========
+  private generateEmailVerificationToken() {
+    return crypto.randomBytes(32).toString('hex'); // 64 chars
+  }
+
+  async requestEmailVerification(email: string) {
+    const user = await authRepository.findByEmail(email);
+    if (!user) {
+      // Tránh lộ user exist => vẫn trả success message chung
+      return new ServiceResponse(ResponseStatus.Success, 'Nếu email tồn tại, hệ thống đã gửi liên kết xác thực', null, StatusCodes.OK);
+    }
+    if (user.isEmailVerified) {
+      return new ServiceResponse(ResponseStatus.Success, 'Email đã được xác thực', null, StatusCodes.OK);
+    }
+    const token = this.generateEmailVerificationToken();
+    const expires = new Date(Date.now() + appEnv.EMAIL_VERIFICATION_EXP_MIN * 60 * 1000);
+    await authRepository.setEmailVerificationToken(user.id, token, expires);
+    // Giả lập gửi mail: log link
+    const verifyLink = `${appEnv.FRONTEND_URL || 'http://localhost:8000'}/verify-email?token=${token}`;
+    console.log('[EMAIL VERIFY] Link:', verifyLink);
+    return new ServiceResponse(ResponseStatus.Success, 'Đã gửi email xác thực (giả lập)', null, StatusCodes.OK);
+  }
+
+  async verifyEmailToken(token: string) {
+    if (!token) {
+      return new ServiceResponse(ResponseStatus.Failed, 'Token không hợp lệ', null, StatusCodes.BAD_REQUEST);
+    }
+    const user = await authRepository.consumeEmailVerificationToken(token);
+    if (!user) {
+      return new ServiceResponse(ResponseStatus.Failed, 'Token không hợp lệ hoặc đã hết hạn', null, StatusCodes.BAD_REQUEST);
+    }
+    return new ServiceResponse(ResponseStatus.Success, 'Xác thực email thành công', { email: user.email }, StatusCodes.OK);
   }
 }
 

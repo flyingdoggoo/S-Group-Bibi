@@ -20,6 +20,9 @@ export const appEnv = cleanEnv(process.env, {
   COOKIE_SECURE: bool({ default: false }),
   COOKIE_SAME_SITE: str({ default: 'lax', choices: ['lax', 'strict', 'none'] }),
 
+  // Email verification expiration (minutes)
+  EMAIL_VERIFICATION_EXP_MIN: num({ default: 30 }),
+
   // Google OAuth
   GOOGLE_CLIENT_ID: str({ default: 'replace_me' }),
   GOOGLE_CLIENT_SECRET: str({ default: 'replace_me' }),
