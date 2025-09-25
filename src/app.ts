@@ -1,4 +1,6 @@
 import "reflect-metadata";
+// Must load bootstrap before other module imports that register Zod schemas
+import './bootstrap/zodOpenapi';
 
 import cors from "cors";
 import express, { Express } from "express";
@@ -23,6 +25,7 @@ app.use(morgan("combined"));
 
 
 app.use("/health-check", Modules.healthCheckRouter);
+app.use('/auth', Modules.authRouter);
 
 app.use(openAPIRouter);
 
